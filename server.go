@@ -1,10 +1,11 @@
 package socketio
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 
-	"github.com/gomodule/redigo/redis"
-
+	"github.com/go-redis/redis/v8"
 	"github.com/googollee/go-socket.io/engineio"
 )
 
@@ -28,15 +29,13 @@ func NewServer(opts *engineio.Options) *Server {
 // Adapter sets redis broadcast adapter.
 func (s *Server) Adapter(opts *RedisAdapterOptions) (bool, error) {
 	opts = getOptions(opts)
-	conn, err := redis.Dial(opts.Network, opts.getAddr())
+	client := redis.NewClient(&opts.Options)
+	_, err := client.Ping(context.TODO()).Result()
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("socket.io: redis adapter ping: %w", err)
 	}
-
 	s.redisAdapter = opts
-
-	conn.Close()
-	return true, nil
+	return true, err
 }
 
 // Close closes server.
@@ -93,7 +92,7 @@ func (s *Server) OnEvent(namespace, event string, f interface{}) {
 func (s *Server) Serve() error {
 	for {
 		conn, err := s.engine.Accept()
-		//todo maybe need check EOF from Accept()
+		// todo maybe need check EOF from Accept()
 		if err != nil {
 			return err
 		}

@@ -1,20 +1,21 @@
 package socketio
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"sync"
 
-	"github.com/gomodule/redigo/redis"
+	"github.com/go-redis/redis/v8"
 )
 
 // redisBroadcast gives Join, Leave & BroadcastTO server API support to socket.io along with room management
 // map of rooms where each room contains a map of connection id to connections in that room
 type redisBroadcast struct {
-	pub *redis.PubSubConn
-	sub *redis.PubSubConn
+	client *redis.Client
+	sub    *redis.PubSub
 
 	nsp        string
 	uid        string
@@ -41,11 +42,12 @@ type roomLenRequest struct {
 	RequestType string
 	RequestID   string
 	Room        string
-	numSub      int        `json:"-"`
-	msgCount    int        `json:"-"`
-	connections int        `json:"-"`
-	mutex       sync.Mutex `json:"-"`
-	done        chan bool  `json:"-"`
+
+	numSub      int
+	msgCount    int
+	connections int
+	mutex       sync.Mutex
+	done        chan bool
 }
 
 type clearRoomRequest struct {
@@ -58,11 +60,12 @@ type clearRoomRequest struct {
 type allRoomRequest struct {
 	RequestType string
 	RequestID   string
-	rooms       map[string]bool `json:"-"`
-	numSub      int             `json:"-"`
-	msgCount    int             `json:"-"`
-	mutex       sync.Mutex      `json:"-"`
-	done        chan bool       `json:"-"`
+
+	rooms    map[string]bool
+	numSub   int
+	msgCount int
+	mutex    sync.Mutex
+	done     chan bool
 }
 
 // response struct
@@ -78,45 +81,37 @@ type allRoomResponse struct {
 	Rooms       []string
 }
 
-func newRedisBroadcast(nsp string, opts *RedisAdapterOptions) (*redisBroadcast, error) {
-	addr := opts.getAddr()
-	pub, err := redis.Dial(opts.Network, addr)
+func newRedisBroadcast(namespace string, opts RedisAdapterOptions) (*redisBroadcast, error) {
+	var (
+		ctx    = context.TODO()
+		client = redis.NewClient(&opts.Options)
+		sub    = client.PSubscribe(
+			ctx,
+			fmt.Sprintf("%s#%s#*", opts.Prefix, namespace),
+		)
+	)
+	_, err := sub.Receive(ctx)
 	if err != nil {
-		return nil, err
-	}
-
-	sub, err := redis.Dial(opts.Network, addr)
-	if err != nil {
-		return nil, err
-	}
-
-	subConn := &redis.PubSubConn{Conn: sub}
-	pubConn := &redis.PubSubConn{Conn: pub}
-
-	if err = subConn.PSubscribe(fmt.Sprintf("%s#%s#*", opts.Prefix, nsp)); err != nil {
 		return nil, err
 	}
 
 	uid := newV4UUID()
-	rbc := &redisBroadcast{
+	rbc := redisBroadcast{
 		rooms:      make(map[string]map[string]Conn),
 		requests:   make(map[string]interface{}),
-		sub:        subConn,
-		pub:        pubConn,
-		key:        fmt.Sprintf("%s#%s#%s", opts.Prefix, nsp, uid),
-		reqChannel: fmt.Sprintf("%s-request#%s", opts.Prefix, nsp),
-		resChannel: fmt.Sprintf("%s-response#%s", opts.Prefix, nsp),
-		nsp:        nsp,
+		client:     client,
+		sub:        sub,
+		key:        fmt.Sprintf("%s#%s#%s", opts.Prefix, namespace, uid),
+		reqChannel: fmt.Sprintf("%s-request#%s", opts.Prefix, namespace),
+		resChannel: fmt.Sprintf("%s-response#%s", opts.Prefix, namespace),
+		nsp:        namespace,
 		uid:        uid,
 	}
-
-	if err = subConn.Subscribe(rbc.reqChannel, rbc.resChannel); err != nil {
+	if err := sub.Subscribe(ctx, rbc.reqChannel, rbc.resChannel); err != nil {
 		return nil, err
 	}
-
 	go rbc.dispatch()
-
-	return rbc, nil
+	return &rbc, nil
 }
 
 // AllRooms gives list of all rooms available for redisBroadcast.
@@ -133,7 +128,7 @@ func (bc *redisBroadcast) AllRooms() []string {
 	req.done = make(chan bool, 1)
 
 	bc.requests[req.RequestID] = &req
-	_, err := bc.pub.Conn.Do("PUBLISH", bc.reqChannel, reqJSON)
+	_, err := bc.client.Publish(context.TODO(), bc.reqChannel, reqJSON).Result()
 	if err != nil {
 		return []string{} // if error occurred,return empty
 	}
@@ -264,7 +259,7 @@ func (bc *redisBroadcast) Len(room string) int {
 	req.done = make(chan bool, 1)
 
 	bc.requests[req.RequestID] = &req
-	_, err = bc.pub.Conn.Do("PUBLISH", bc.reqChannel, reqJSON)
+	_, err = bc.client.Publish(context.TODO(), bc.reqChannel, reqJSON).Result()
 	if err != nil {
 		return -1
 	}
@@ -331,16 +326,16 @@ func (bc *redisBroadcast) onMessage(channel string, msg []byte) error {
 
 // Get the number of subscribers of a channel.
 func (bc *redisBroadcast) getNumSub(channel string) (int, error) {
-	rs, err := bc.pub.Conn.Do("PUBSUB", "NUMSUB", channel)
+	rs, err := bc.client.PubSubNumSub(context.TODO(), channel).Result()
 	if err != nil {
 		return 0, err
 	}
 
-	numSub64, ok := rs.([]interface{})[1].(int)
+	numSub, ok := rs[channel]
 	if !ok {
-		return 0, errors.New("redis reply cast to int error")
+		return 0, fmt.Errorf("socket.io: redis pubsub numsub miss channel %s", channel)
 	}
-	return numSub64, nil
+	return int(numSub), nil
 }
 
 // Handle request from redis channel.
@@ -385,7 +380,7 @@ func (bc *redisBroadcast) publish(channel string, msg interface{}) {
 		return
 	}
 
-	_, err = bc.pub.Conn.Do("PUBLISH", channel, resJSON)
+	_, err = bc.client.Publish(context.TODO(), channel, resJSON).Result()
 	if err != nil {
 		return
 	}
@@ -487,7 +482,7 @@ func (bc *redisBroadcast) publishMessage(room string, event string, args ...inte
 		return
 	}
 
-	_, err = bc.pub.Conn.Do("PUBLISH", bc.key, bcMessageJSON)
+	_, err = bc.client.Publish(context.TODO(), bc.key, bcMessageJSON).Result()
 	if err != nil {
 		return
 	}
@@ -529,29 +524,20 @@ func (bc *redisBroadcast) getRoomsByConn(connection Conn) []string {
 }
 
 func (bc *redisBroadcast) dispatch() {
-	for {
-		switch m := bc.sub.Receive().(type) {
-		case redis.Message:
-			if m.Channel == bc.reqChannel {
-				bc.onRequest(m.Data)
-				break
-			} else if m.Channel == bc.resChannel {
-				bc.onResponse(m.Data)
-				break
-			}
+	subChn := bc.sub.Channel()
+	for msg := range subChn {
+		if msg.Channel == bc.reqChannel {
+			bc.onRequest([]byte(msg.Payload))
+			break
+		} else if msg.Channel == bc.resChannel {
+			bc.onResponse([]byte(msg.Payload))
+			break
+		}
 
-			err := bc.onMessage(m.Channel, m.Data)
-			if err != nil {
-				return
-			}
-
-		case redis.Subscription:
-			if m.Count == 0 {
-				return
-			}
-
-		case error:
+		err := bc.onMessage(msg.Channel, []byte(msg.Payload))
+		if err != nil {
 			return
 		}
+
 	}
 }
