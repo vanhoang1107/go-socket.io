@@ -81,9 +81,10 @@ func (t *Transport) Dial(u *url.URL, requestHeader http.Header) (transport.Conn,
 // Accept accepts a http request and create Conn.
 func (t *Transport) Accept(w http.ResponseWriter, r *http.Request) (transport.Conn, error) {
 	upgrader := websocket.Upgrader{
-		ReadBufferSize:  t.ReadBufferSize,
-		WriteBufferSize: t.WriteBufferSize,
-		CheckOrigin:     t.CheckOrigin,
+		ReadBufferSize:    t.ReadBufferSize,
+		WriteBufferSize:   t.WriteBufferSize,
+		CheckOrigin:       t.CheckOrigin,
+		EnableCompression: true,
 	}
 	c, err := upgrader.Upgrade(w, r, w.Header())
 	if err != nil {
