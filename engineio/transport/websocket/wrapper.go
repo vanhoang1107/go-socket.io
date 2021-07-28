@@ -85,6 +85,11 @@ func (r rcWrapper) Close() error {
 
 	// Attempt to drain the Reader.
 	_, err := io.Copy(ioutil.Discard, r)
+	if err == io.ErrClosedPipe {
+		// Some readers like `flateReadWrapper` close themselves
+		// when they've already drained
+		err = nil
+	}
 
 	return err
 }
