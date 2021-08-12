@@ -48,6 +48,9 @@ func (s *Server) Close() error {
 	s.closeOnce.Do(func() {
 		close(s.connChan)
 	})
+	if err := s.sessions.Close(); err != nil {
+		return err
+	}
 	return nil
 }
 

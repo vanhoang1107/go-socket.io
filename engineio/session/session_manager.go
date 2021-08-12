@@ -21,6 +21,16 @@ func NewManager(gen IDGenerator) *Manager {
 	}
 }
 
+func (m *Manager) Close() error {
+	m.locker.Lock()
+	defer m.locker.Unlock()
+
+	for _, sess := range m.sessions {
+		_ = sess.Close()
+	}
+	return nil
+}
+
 func (m *Manager) Add(s *Session) {
 	m.locker.Lock()
 	defer m.locker.Unlock()
