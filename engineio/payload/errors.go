@@ -2,7 +2,6 @@ package payload
 
 import (
 	"errors"
-	"fmt"
 )
 
 // Error is payload error.
@@ -18,18 +17,18 @@ type OpError struct {
 }
 
 func newOpError(op string, err error) error {
-	return &OpError{
+	return OpError{
 		Op:  op,
 		Err: err,
 	}
 }
 
-func (e *OpError) Error() string {
-	return fmt.Sprintf("%s: %s", e.Op, e.Err.Error())
+func (e OpError) Error() string {
+	return e.Op + ": " + e.Err.Error()
 }
 
 // Temporary returns true if error can retry.
-func (e *OpError) Temporary() bool {
+func (e OpError) Temporary() bool {
 	if oe, ok := e.Err.(Error); ok {
 		return oe.Temporary()
 	}
