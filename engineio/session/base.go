@@ -1,6 +1,8 @@
 package session
 
 import (
+	"time"
+
 	"github.com/googollee/go-socket.io/engineio/frame"
 )
 
@@ -12,4 +14,8 @@ const (
 	TEXT = FrameType(frame.String)
 	// BINARY is binary type message.
 	BINARY = FrameType(frame.Binary)
+)
+
+const (
+	PayloadErrorTemporaryRetryDelay = 50 * time.Millisecond
 )

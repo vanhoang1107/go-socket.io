@@ -211,6 +211,7 @@ func (s *Session) nextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
 		ft, pt, r, err := conn.NextReader()
 		if err != nil {
 			if op, ok := err.(payload.Error); ok && op.Temporary() {
+				time.Sleep(PayloadErrorTemporaryRetryDelay)
 				continue
 			}
 			return 0, 0, nil, err
@@ -228,6 +229,7 @@ func (s *Session) nextWriter(ft frame.Type, pt packet.Type) (io.WriteCloser, err
 		w, err := conn.NextWriter(ft, pt)
 		if err != nil {
 			if op, ok := err.(payload.Error); ok && op.Temporary() {
+				time.Sleep(PayloadErrorTemporaryRetryDelay)
 				continue
 			}
 			return nil, err
