@@ -21,17 +21,18 @@ func defaultOptions() *RedisAdapterOptions {
 }
 
 func getOptions(opts *RedisAdapterOptions) *RedisAdapterOptions {
-	options := defaultOptions()
-	if opts != nil {
-		if opts.Addr != "" {
-			options.Addr = opts.Addr
-		}
-		if opts.Prefix != "" {
-			options.Prefix = opts.Prefix
-		}
-		if opts.Network != "" {
-			options.Network = opts.Network
-		}
+	defaultOpts := defaultOptions()
+	if opts == nil {
+		return defaultOpts
 	}
-	return options
+	if opts.Addr == "" {
+		opts.Addr = defaultOpts.Addr
+	}
+	if opts.Prefix == "" {
+		opts.Prefix = defaultOpts.Prefix
+	}
+	if opts.Network == "" {
+		opts.Network = defaultOpts.Network
+	}
+	return opts
 }
