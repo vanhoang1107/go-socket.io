@@ -2,7 +2,6 @@ package engineio
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log"
 	"net"
@@ -74,13 +73,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	reqTransport := query.Get("transport")
 	srvTransport, ok := s.transports.Get(reqTransport)
 	if !ok || srvTransport == nil {
-		http.Error(w, fmt.Sprintf("invalid transport: %s", srvTransport), http.StatusBadRequest)
+		http.Error(w, "invalid transport: "+reqTransport, http.StatusBadRequest)
 		return
 	}
 
 	header, err := s.requestChecker(r)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("request checker err: %s", err.Error()), http.StatusBadGateway)
+		http.Error(w, "request checker err: "+err.Error(), http.StatusBadGateway)
 		return
 	}
 
@@ -93,19 +92,19 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// if we can't find session in current session pool, let's create this. for new connections
 	if !ok || reqSession == nil {
 		if sid != "" {
-			http.Error(w, fmt.Sprintf("invalid sid value: %s", sid), http.StatusBadRequest)
+			http.Error(w, "invalid sid value: "+sid, http.StatusBadRequest)
 			return
 		}
 
 		transportConn, err := srvTransport.Accept(w, r)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("transport accept err: %s", err.Error()), http.StatusBadGateway)
+			http.Error(w, "transport accept err: "+err.Error(), http.StatusBadGateway)
 			return
 		}
 
 		reqSession, err = s.newSession(r.Context(), transportConn, reqTransport)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("create new session err: %s", err.Error()), http.StatusBadRequest)
+			http.Error(w, "create new session err: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
